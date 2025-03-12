@@ -21,6 +21,8 @@ import subprocess
 import json
 import tempfile
 import mimetypes
+from pathlib import Path
+from typing import Dict, List
 
 try:
     import magic
@@ -32,7 +34,6 @@ from PIL import Image, ImageSequence, ImageFilter
 from . import matrix
 
 open_utf8 = partial(open, encoding='UTF-8')
-
 
 def guess_mime(data: bytes) -> str:
     mime = None
@@ -272,6 +273,20 @@ def convert_sticker(data: bytes) -> (bytes, str, int, int):
             print(f"Saved to {temp.name}")
         raise e
 
+def convert_image(data: bytes, max_w=256, max_h=256) -> (bytes, int, int):
+    image: Image.Image = Image.open(BytesIO(data)).convert("RGBA")
+    new_file = BytesIO()
+    image.save(new_file, "png")
+    w, h = image.size
+    if w > max_w or h > max_h:
+        # Set the width and height to lower values so clients wouldn't show them as huge images
+        if w > h:
+            h = int(h / (w / max_w))
+            w = max_w
+        else:
+            w = int(w / (h / max_h))
+            h = max_h
+    return new_file.getvalue(), w, h
 
 def add_to_index(name: str, output_dir: str) -> None:
     index_path = os.path.join(output_dir, "index.json")
@@ -311,3 +326,15 @@ def make_sticker(mxc: str, width: int, height: int, size: int,
         },
         "msgtype": "m.sticker",
     }
+
+
+def add_thumbnails(stickers: List[matrix.StickerInfo], stickers_data: Dict[str, bytes], output_dir: str) -> None:
+    thumbnails = Path(output_dir, "thumbnails")
+    thumbnails.mkdir(parents=True, exist_ok=True)
+
+    for sticker in stickers:
+        image_data, _, _ = convert_image(stickers_data[sticker["url"]], 128, 128)
+
+        name = sticker["url"].split("/")[-1]
+        thumbnail_path = thumbnails / name
+        thumbnail_path.write_bytes(image_data)
